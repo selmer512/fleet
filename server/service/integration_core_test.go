@@ -2404,16 +2404,22 @@ func (s *integrationTestSuite) TestGlobalPoliciesProprietary() {
 	assert.Equal(t, "admin1@example.com", gpResp.Policy.AuthorEmail)
 	assert.Equal(t, "darwin", gpResp.Policy.Platform)
 
-	mgpParams := modifyGlobalPolicyRequest{
-		ModifyPolicyPayload: fleet.ModifyPolicyPayload{
-			Name:        ptr.String("TestQuery4"),
-			Query:       ptr.String("select * from osquery_info;"),
-			Description: ptr.String("Some description updated"),
-			Resolution:  ptr.String("some global resolution updated"),
-		},
-	}
-	mgpResp := modifyGlobalPolicyResponse{}
-	s.DoJSON("PATCH", fmt.Sprintf("/api/latest/fleet/policies/%d", gpResp.Policy.ID), mgpParams, http.StatusOK, &mgpResp)
+	response := s.DoRaw("PATCH", fmt.Sprintf("/api/latest/fleet/policies/%d", gpResp.Policy.ID), []byte(`{
+		"PolicyID": 0,
+		"name": "TestQuery4",
+		"query": "select * from osquery_info;",
+		"description": "Some description updated",
+		"resolution": "some global resolution updated",
+		"platform": null,
+		"critical": null,
+		"calendar_events_enabled": null
+	}`), http.StatusOK)
+	var mgpResp modifyGlobalPolicyResponse
+	responseBody, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	err = json.Unmarshal(responseBody, &mgpResp)
+	require.NoError(t, err)
+
 	require.NotNil(t, gpResp.Policy)
 	assert.Equal(t, "TestQuery4", mgpResp.Policy.Name)
 	assert.Equal(t, "select * from osquery_info;", mgpResp.Policy.Query)
@@ -2473,13 +2479,21 @@ func (s *integrationTestSuite) TestGlobalPoliciesProprietary() {
 	s.DoJSON("GET", listHostsURL, nil, http.StatusOK, &listHostsResp)
 	require.Len(t, listHostsResp.Hosts, 1)
 
-	mgpParams = modifyGlobalPolicyRequest{
-		ModifyPolicyPayload: fleet.ModifyPolicyPayload{
-			Query: ptr.String("select * from users;"),
-		},
-	}
-	mgpResp = modifyGlobalPolicyResponse{}
-	s.DoJSON("PATCH", fmt.Sprintf("/api/latest/fleet/policies/%d", gpResp.Policy.ID), mgpParams, http.StatusOK, &mgpResp)
+	response = s.DoRaw("PATCH", fmt.Sprintf("/api/latest/fleet/policies/%d", gpResp.Policy.ID), []byte(`{
+		"PolicyID": 0,
+		"name": null,
+		"query": "select * from users;",
+		"description": null,
+		"resolution": null,
+		"platform": null,
+		"critical": null,
+		"calendar_events_enabled": null
+	}`), http.StatusOK)
+	responseBody, err = io.ReadAll(response.Body)
+	require.NoError(t, err)
+	err = json.Unmarshal(responseBody, &mgpResp)
+	require.NoError(t, err)
+
 	require.NotNil(t, gpResp.Policy)
 	assert.Equal(t, "TestQuery4", mgpResp.Policy.Name)
 	assert.Equal(t, "select * from users;", mgpResp.Policy.Query)
@@ -2538,13 +2552,21 @@ func (s *integrationTestSuite) TestGlobalPoliciesProprietary() {
 	require.Len(t, listHostsResp.Hosts, 1)
 
 	// Modify the platform for the policy, which should clear the policy stats
-	mgpParams = modifyGlobalPolicyRequest{
-		ModifyPolicyPayload: fleet.ModifyPolicyPayload{
-			Platform: ptr.String("linux"),
-		},
-	}
-	mgpResp = modifyGlobalPolicyResponse{}
-	s.DoJSON("PATCH", fmt.Sprintf("/api/latest/fleet/policies/%d", gpResp.Policy.ID), mgpParams, http.StatusOK, &mgpResp)
+	response = s.DoRaw("PATCH", fmt.Sprintf("/api/latest/fleet/policies/%d", gpResp.Policy.ID), []byte(`{
+		"PolicyID": 0,
+		"name": null,
+		"query": null,
+		"description": null,
+		"resolution": null,
+		"platform": "linux",
+		"critical": null,
+		"calendar_events_enabled": null
+	}`), http.StatusOK)
+	responseBody, err = io.ReadAll(response.Body)
+	require.NoError(t, err)
+	err = json.Unmarshal(responseBody, &mgpResp)
+	require.NoError(t, err)
+
 	require.NotNil(t, gpResp.Policy)
 	assert.Equal(t, "TestQuery4", mgpResp.Policy.Name)
 	assert.Equal(t, "select * from users;", mgpResp.Policy.Query)
@@ -2630,16 +2652,23 @@ func (s *integrationTestSuite) TestTeamPoliciesProprietary() {
 	assert.Equal(t, "admin1@example.com", tpResp.Policy.AuthorEmail)
 
 	tpNameNew := "TestPolicy4"
-	mtpParams := modifyTeamPolicyRequest{
-		ModifyPolicyPayload: fleet.ModifyPolicyPayload{
-			Name:        ptr.String(tpNameNew),
-			Query:       ptr.String("select * from osquery_info;"),
-			Description: ptr.String("Some description updated"),
-			Resolution:  ptr.String("some team resolution updated"),
-		},
-	}
-	mtpResp := modifyTeamPolicyResponse{}
-	s.DoJSON("PATCH", fmt.Sprintf("/api/latest/fleet/teams/%d/policies/%d", team1.ID, tpResp.Policy.ID), mtpParams, http.StatusOK, &mtpResp)
+
+	response := s.DoRaw("PATCH", fmt.Sprintf("/api/latest/fleet/teams/%d/policies/%d", team1.ID, tpResp.Policy.ID), []byte(fmt.Sprintf(`{
+		"PolicyID": 0,
+		"name": "%s",
+		"query": "select * from osquery_info;",
+		"description": "Some description updated",
+		"resolution": "some team resolution updated",
+		"platform": null,
+		"critical": null,
+		"calendar_events_enabled": null
+	}`, tpNameNew)), http.StatusOK)
+	var mtpResp modifyGlobalPolicyResponse
+	responseBody, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	err = json.Unmarshal(responseBody, &mtpResp)
+	require.NoError(t, err)
+
 	require.NotNil(t, mtpResp.Policy)
 	assert.Equal(t, tpNameNew, mtpResp.Policy.Name)
 	assert.Equal(t, "select * from osquery_info;", mtpResp.Policy.Query)
@@ -12532,5 +12561,4 @@ func (s *integrationTestSuite) TestSecretVariables() {
 	require.NoError(t, err)
 	require.Len(t, secrets, 1)
 	assert.Equal(t, "value", secrets[0].Value)
-
 }
