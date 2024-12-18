@@ -7,12 +7,14 @@ on:
     branches: [ "main" ]
 
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
     - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+      run: docker build . --file Dockerfile --tag fleet-image:latest
+    - name: Build Bulk Operations Dashboard Docker image
+      run: docker build . --file ee/bulk-operations-dashboard/Dockerfile --tag bulk-operations-dashboard:latest
+    - name: Build Vulnerability Dashboard Docker image
+      run: docker build . --file ee/vulnerability-dashboard/Dockerfile --tag vulnerability-dashboard:latest
