@@ -21,6 +21,7 @@ type IUpdateSearcher struct {
 	ServiceID                           string
 }
 
+// toIUpdateSearcher converts an IDispatch object to an IUpdateSearcher
 func toIUpdateSearcher(updateSearcherDisp *ole.IDispatch) (*IUpdateSearcher, error) {
 	var err error
 	iUpdateSearcher := &IUpdateSearcher{
@@ -59,7 +60,7 @@ func toIUpdateSearcher(updateSearcherDisp *ole.IDispatch) (*IUpdateSearcher, err
 func (iUpdateSearcher *IUpdateSearcher) Search(criteria string) (*ISearchResult, error) {
 	searchResultDisp, err := oleconv.ToIDispatchErr(oleutil.CallMethod(iUpdateSearcher.disp, "Search", criteria))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to search for updates: %w", err)
 	}
 	return toISearchResult(searchResultDisp)
 }
@@ -69,7 +70,7 @@ func (iUpdateSearcher *IUpdateSearcher) Search(criteria string) (*ISearchResult,
 func (iUpdateSearcher *IUpdateSearcher) QueryHistory(startIndex int32, count int32) ([]*IUpdateHistoryEntry, error) {
 	updateHistoryEntriesDisp, err := oleconv.ToIDispatchErr(oleutil.CallMethod(iUpdateSearcher.disp, "QueryHistory", startIndex, count))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query update history: %w", err)
 	}
 	return toIUpdateHistoryEntries(updateHistoryEntriesDisp)
 }
@@ -84,7 +85,7 @@ func (iUpdateSearcher *IUpdateSearcher) GetTotalHistoryCount() (int32, error) {
 func (iUpdateSearcher *IUpdateSearcher) QueryHistoryAll() ([]*IUpdateHistoryEntry, error) {
 	count, err := iUpdateSearcher.GetTotalHistoryCount()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get total history count: %w", err)
 	}
 	return iUpdateSearcher.QueryHistory(0, count)
 }

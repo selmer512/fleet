@@ -19,6 +19,7 @@ type ISearchResult struct {
 	Warnings       []*IUpdateException
 }
 
+// toISearchResult converts an IDispatch object into an ISearchResult.
 func toISearchResult(searchResultDisp *ole.IDispatch) (*ISearchResult, error) {
 	var err error
 	iSearchResult := &ISearchResult{
@@ -39,7 +40,7 @@ func toISearchResult(searchResultDisp *ole.IDispatch) (*ISearchResult, error) {
 		}
 	}
 
-	// Updates is a IUpdateCollection, and we want the full details. So cast it ia toIUpdates
+	// Updates is a IUpdateCollection, and we want the full details. So cast it to IUpdate objects
 	updatesDisp, err := oleconv.ToIDispatchErr(oleutil.GetProperty(searchResultDisp, "Updates"))
 	if err != nil {
 		return nil, fmt.Errorf("Updates: %w", err)
@@ -61,4 +62,28 @@ func toISearchResult(searchResultDisp *ole.IDispatch) (*ISearchResult, error) {
 	}
 
 	return iSearchResult, nil
+}
+
+// Updates returns the list of updates from the search result.
+// This is useful for iterating through the available updates.
+func (iSearchResult *ISearchResult) Updates() ([]*IUpdate, error) {
+	if iSearchResult.Updates == nil {
+		// If the updates were not populated, attempt to fetch them again
+		updatesDisp, err := oleconv.ToIDispatchErr(oleutil.GetProperty(iSearchResult.disp, "Updates"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get Updates from ISearchResult: %w", err)
+		}
+
+		if updatesDisp == nil {
+			return nil, fmt.Errorf("no updates were found in the ISearchResult")
+		}
+
+		// Convert the dispatch object to an array of IUpdate objects
+		iSearchResult.Updates, err = toIUpdates(updatesDisp)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert IUpdateCollection to IUpdate objects: %w", err)
+		}
+	}
+
+	return iSearchResult.Updates, nil
 }

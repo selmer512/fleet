@@ -72,3 +72,61 @@ func (iUpdateSession *IUpdateSession) CreateUpdateSearcher() (*IUpdateSearcher, 
 
 	return toIUpdateSearcher(updateSearcherDisp)
 }
+
+// GetPendingUpdates queries the system for pending Windows updates using the IUpdateSearcher.
+// It returns a list of pending updates (those that are not installed or hidden).
+func (iUpdateSession *IUpdateSession) GetPendingUpdates() ([]*IUpdate, error) {
+	searcher, err := iUpdateSession.CreateUpdateSearcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create update searcher: %w", err)
+	}
+
+	// Query for updates that are not installed and not hidden
+	searchCriteria := "IsInstalled=0 AND IsHidden=0"
+	searchResult, err := searcher.Search(searchCriteria)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search for updates: %w", err)
+	}
+
+	return searchResult.Updates()
+}
+
+// InstallUpdate installs a Windows update using the IUpdateInstaller.
+// It accepts the unique update ID as input, locates the update, downloads it, and installs it.
+func (iUpdateSession *IUpdateSession) InstallUpdate(updateID string) error {
+	searcher, err := iUpdateSession.CreateUpdateSearcher()
+	if err != nil {
+		return fmt.Errorf("failed to create update searcher: %w", err)
+	}
+
+	// Re-run search to ensure the update still exists
+	searchCriteria := fmt.Sprintf("UpdateID='%s'", updateID)
+	searchResult, err := searcher.Search(searchCriteria)
+	if err != nil {
+		return fmt.Errorf("failed to search for update: %w", err)
+	}
+
+	updates, err := searchResult.Updates()
+	if err != nil {
+		return fmt.Errorf("failed to get updates from search result: %w", err)
+	}
+
+	if len(updates) == 0 {
+		return fmt.Errorf("update %s not found", updateID)
+	}
+
+	update := updates[0]
+
+	// Download and install the update
+	err = update.Download()
+	if err != nil {
+		return fmt.Errorf("failed to download update: %w", err)
+	}
+
+	err = update.Install()
+	if err != nil {
+		return fmt.Errorf("failed to install update: %w", err)
+	}
+
+	return nil
+}

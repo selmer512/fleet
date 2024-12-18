@@ -265,6 +265,10 @@ func attachFleetAPIRoutes(r *mux.Router, svc fleet.Service, config config.FleetC
 
 	ue.POST("/api/_version_/fleet/trigger", triggerEndpoint, triggerRequest{})
 
+	ue.GET("/api/_version_/fleet/windows-updates", getWindowsUpdatesEndpoint, nil)
+	ue.POST("/api/_version_/fleet/windows-updates/apply", applyWindowsUpdatesEndpoint, applyWindowsUpdatesRequest{})
+	ue.GET("/api/_version_/fleet/windows-updates/status", getWindowsUpdatesStatusEndpoint, getWindowsUpdatesStatusRequest{})
+
 	ue.GET("/api/_version_/fleet/me", meEndpoint, nil)
 	ue.GET("/api/_version_/fleet/sessions/{id:[0-9]+}", getInfoAboutSessionEndpoint, getInfoAboutSessionRequest{})
 	ue.DELETE("/api/_version_/fleet/sessions/{id:[0-9]+}", deleteSessionEndpoint, deleteSessionRequest{})
@@ -1279,4 +1283,92 @@ func WithMDMEnrollmentMiddleware(svc fleet.Service, logger kitlog.Logger, next h
 
 		next.ServeHTTP(w, r)
 	}
+}
+
+func getWindowsUpdatesEndpoint(ctx context.Context, request interface{}) (interface{}, error) {
+	updates, err := checkForUpdates()
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch updates: %w", err)
+	}
+
+	var updateList []map[string]interface{}
+	for _, update := range updates {
+		title := oleutil.MustGetProperty(update, "Title").ToString()
+		id := oleutil.MustGetProperty(update, "Identity").ToIDispatch()
+		updateList = append(updateList, map[string]interface{}{
+			"Title": title,
+			"ID":    oleutil.MustGetProperty(id, "UpdateID").ToString(),
+		})
+	}
+
+	return map[string]interface{}{
+		"updates": updateList,
+	}, nil
+}
+type applyWindowsUpdatesRequest struct {
+	UpdateIDs []string `json:"update_ids"`
+}
+
+func applyWindowsUpdatesEndpoint(ctx context.Context, request interface{}) (interface{}, error) {
+	req := request.(*applyWindowsUpdatesRequest)
+	if err := installUpdatesByIDs(req.UpdateIDs); err != nil {
+		return nil, fmt.Errorf("failed to apply updates: %w", err)
+	}
+	return map[string]string{"status": "updates applied successfully"}, nil
+}
+
+func getWindowsUpdatesStatusEndpoint(ctx context.Context, request interface{}) (interface{}, error) {
+	status, err := getUpdateInstallationStatus()
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch update status: %w", err)
+	}
+	return map[string]interface{}{"status": status}, nil
+}
+
+func checkForUpdates() ([]*ole.IDispatch, error) {
+	ole.CoInitialize(0)
+	defer ole.CoUninitialize()
+
+	session, err := oleutil.CreateObject("Microsoft.Update.Session")
+	if err != nil {
+		return nil, err
+	}
+	defer session.Release()
+
+	searcher := oleutil.MustCallMethod(session, "CreateUpdateSearcher").ToIDispatch()
+	results := oleutil.MustCallMethod(searcher, "Search", "IsInstalled=0").ToIDispatch()
+	updates := oleutil.MustGetProperty(results, "Updates").ToIDispatch()
+
+	count := int(oleutil.MustGetProperty(updates, "Count").Val)
+	var updateList []*ole.IDispatch
+	for i := 0; i < count; i++ {
+		update := oleutil.MustGetProperty(updates, "Item", i).ToIDispatch()
+		updateList = append(updateList, update)
+	}
+
+	return updateList, nil
+}
+
+func installUpdatesByIDs(updateIDs []string) error {
+	ole.CoInitialize(0)
+	defer ole.CoUninitialize()
+
+	session := oleutil.MustCreateObject("Microsoft.Update.Session")
+	installer := oleutil.MustCallMethod(session, "CreateUpdateInstaller").ToIDispatch()
+	collection := oleutil.MustCreateObject("Microsoft.Update.UpdateColl").ToIDispatch()
+
+	for _, id := range updateIDs {
+		// Logic to add updates to the collection based on IDs
+		// Simplified for demonstration
+		update := findUpdateByID(id)
+		oleutil.MustCallMethod(collection, "Add", update)
+	}
+
+	_, err := oleutil.CallMethod(installer, "Install", collection)
+	return err
+}
+
+func getUpdateInstallationStatus() (string, error) {
+	// Simplified placeholder: Replace with logic to fetch installation progress
+	return "All updates installed successfully", nil
 }

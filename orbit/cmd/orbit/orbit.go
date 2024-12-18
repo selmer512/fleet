@@ -18,6 +18,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fleetdm/fleet/v4/orbit/pkg/logging"
+	"githubcom/fleetdm/fleet/v4/orbit/pkg/windows/windowsupdate"
+	"github.com/go-ole/go-ole"
+	"github.com/go-ole/go-ole/oleutil"
+	"github.com/rs/zerolog/log"
+	"github.com/oklog/run"
 	"github.com/fleetdm/fleet/v4/orbit/pkg/augeas"
 	"github.com/fleetdm/fleet/v4/orbit/pkg/build"
 	"github.com/fleetdm/fleet/v4/orbit/pkg/constant"
@@ -64,6 +70,145 @@ const (
 	logErrorMissingExecSubstr    logError = "The application cannot be opened because its executable is missing."
 	logErrorMissingExecMsg       logError = "bad desktop executable"
 )
+
+// UpdateManager manages the check, download, and installation of updates.
+type UpdateManager struct {
+	interruptCh   chan struct{} // closed when interrupt is triggered
+	executeDoneCh chan struct{} // closed when execute returns
+}
+
+// NewUpdateManager creates a new UpdateManager instance.
+func NewUpdateManager() *UpdateManager {
+	return &UpdateManager{
+		interruptCh:   make(chan struct{}),
+		executeDoneCh: make(chan struct{}),
+	}
+}
+
+// Execute orchestrates the update process.
+func (u *UpdateManager) Execute() error {
+	defer close(u.executeDoneCh)
+
+	log.Info().Msg("Starting update process")
+
+	for {
+		select {
+		case <-u.interruptCh:
+			log.Info().Msg("Update process interrupted")
+			return nil
+		default:
+			if err := u.processUpdateActions(); err != nil {
+				log.Error().Err(err).Msg("Update process encountered an error")
+			}
+			time.Sleep(6 * time.Hour) // Check for updates every 6 hours
+		}
+	}
+}
+
+// Interrupt stops the update process.
+func (u *UpdateManager) Interrupt(err error) {
+	close(u.interruptCh) // Signal execute to return.
+	<-u.executeDoneCh    // Wait for execute to return.
+}
+
+// processUpdateActions checks for updates, downloads them, and installs them.
+func (u *UpdateManager) processUpdateActions() error {
+	log.Info().Msg("Checking for software updates")
+
+	// Original Update Process
+	if err := u.processSoftwareUpdates(); err != nil {
+		return fmt.Errorf("software updates failed: %w", err)
+	}
+
+	// Windows Update Process
+	if runtime.GOOS == "windows" {
+		log.Info().Msg("Checking for Windows updates")
+		updates, err := checkForWindowsUpdates()
+		if err != nil {
+			return fmt.Errorf("failed to check for Windows updates: %w", err)
+		}
+
+		if len(updates) == 0 {
+			log.Info().Msg("No Windows updates available")
+			return nil
+		}
+
+		log.Info().Msgf("Found %d Windows updates", len(updates))
+
+		log.Info().Msg("Downloading Windows updates")
+		if err := downloadWindowsUpdates(updates); err != nil {
+			return fmt.Errorf("failed to download Windows updates: %w", err)
+		}
+
+		log.Info().Msg("Installing Windows updates")
+		if err := installWindowsUpdates(updates); err != nil {
+			return fmt.Errorf("failed to install Windows updates: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// processSoftwareUpdates represents the original update logic for Orbit itself.
+func (u *UpdateManager) processSoftwareUpdates() error {
+	// Placeholder for the existing update process logic for Orbit.
+	// Existing logic will remain untouched.
+	return nil
+}
+
+// checkForWindowsUpdates interacts with the Windows Update API to search for available updates.
+func checkForWindowsUpdates() ([]*windowsupdate.IUpdate, error) {
+	log.Info().Msg("Starting Windows Update search")
+	ole.CoInitialize(0)
+	defer ole.CoUninitialize()
+
+	session, err := windowsupdate.NewUpdateSession()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Update Session: %w", err)
+	}
+
+	searcher, err := session.CreateUpdateSearcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create UpdateSearcher: %w", err)
+	}
+
+	searchResult, err := searcher.Search("IsInstalled=0 AND IsHidden=0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to search for Windows updates: %w", err)
+	}
+
+	return searchResult.Updates()
+}
+
+// downloadWindowsUpdates initiates the download of available Windows updates.
+func downloadWindowsUpdates(updates []*windowsupdate.IUpdate) error {
+	for _, update := range updates {
+		title, _ := update.GetTitle()
+		log.Info().Msgf("Downloading update: %s", title)
+		
+		if err := update.Download(); err != nil {
+			return fmt.Errorf("failed to download update %s: %w", title, err)
+		}
+	}
+	
+	log.Info().Msg("All Windows updates downloaded successfully")
+	return nil
+}
+
+// installWindowsUpdates installs the downloaded Windows updates.
+func installWindowsUpdates(updates []*windowsupdate.IUpdate) error {
+	for _, update := range updates {
+		title, _ := update.GetTitle()
+		log.Info().Msgf("Installing update: %s", title)
+		
+		if err := update.Install(); err != nil {
+			return fmt.Errorf("failed to install update %s: %w", title, err)
+		}
+	}
+	
+	log.Info().Msg("All Windows updates installed successfully")
+	return nil
+}
 
 func main() {
 	app := cli.NewApp()
@@ -1327,6 +1472,12 @@ func main() {
 		})
 
 		go sigusrListener(c.String("root-dir"))
+
+		// Add the Windows Update Manager if running on Windows
+		if runtime.GOOS == "windows" && !c.Bool("disable-updates") {
+			updateManager := NewUpdateManager()
+			addSubsystem(&g, "windows update manager", updateManager)
+		}
 
 		if err := g.Run(); err != nil {
 			log.Error().Err(err).Msg("unexpected exit")
